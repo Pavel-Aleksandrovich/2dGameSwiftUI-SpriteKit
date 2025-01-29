@@ -8,6 +8,8 @@ private let playerNodeName = "player"
 
 private let playerInitialSize = CGSize(width: 80, height: 80)
 private let playerDownSize = CGSize(width: 50, height: 50)
+private let trapSize = CGSize(width: 100, height: 60)
+private let enemySize = CGSize(width: 60, height: 60)
 
 struct BitMask {
     static let player: UInt32 = 0x1 << 0
@@ -20,6 +22,8 @@ final class GameScene: SKScene {
     private let skCamera = SKCameraNode()
     private var floorsList: [SKSpriteNode] = []
     private var enemyesList: [SKSpriteNode] = []
+    
+    var loseHandler: ()->() = {}
     
     override init(size: CGSize) {
         super.init(size: size)
@@ -37,36 +41,34 @@ final class GameScene: SKScene {
         setupBack()
         setupPlayer()
         setupFloor(0)
-        setupMoveAction()
         setupCamera()
-
     }
     
     override func didSimulatePhysics() {
         moveCamera()
-
         
-        if let last = floorsList.last {
-            if playerNode.position.x+100 > last.frame.maxX {
-                setupFloor(last.frame.maxX+last.frame.width/2 + 100)
-                
-                
-                let last = floorsList.last!
-                setupEnemy(x: last.frame.midX, y: last.frame.maxY)
-                
-                if floorsList.count > 2 {
-                    let floor = floorsList.removeFirst()
-                    floor.removeFromParent()
-                }
-                
-                if enemyesList.count > 5 {
-                    let enemyNode = enemyesList.removeFirst()
-                    enemyNode.removeFromParent()
-                }
-                
-            }
-
+        guard !floorsList.isEmpty,
+              playerNode.position.x+200 > floorsList.last!.frame.maxX
+        else { return }
+        
+        let last = floorsList.last!
+        setupFloor(last.frame.maxX+last.frame.width/2 + trapSize.width + 20)
+        
+        // TO DO: Floors created incorrect. Space between two floors is different
+        
+        let enemyY = floorsList.last!.frame.maxY + enemySize.height/2 + playerInitialSize.height - 10
+        setupEnemy(x: floorsList.last!.frame.midX, y: enemyY, size: enemySize)
+        
+        if floorsList.count > 2 {
+            let floor = floorsList.removeFirst()
+            floor.removeFromParent()
         }
+        
+        if enemyesList.count > 5 {
+            let enemyNode = enemyesList.removeFirst()
+            enemyNode.removeFromParent()
+        }
+        
     }
     
 }
@@ -88,9 +90,9 @@ extension GameScene: SKPhysicsContactDelegate {
                if let node = node {
                    node.removeFromParent()
                }
+         
+               loseHandler()
                
-               // TO DO: descrease life while contact with enemy
-               print("-1 life")
            }
        }
         
@@ -101,8 +103,12 @@ extension GameScene: SKPhysicsContactDelegate {
 
 extension GameScene {
     
+    func startGame() {
+        setupPlayerMoveAction()
+    }
+    
     func jumpDidTap() {
-        let jumpImpuls = CGVector(dx: 20, dy: 300)
+        let jumpImpuls = CGVector(dx: 0, dy: 250)
         playerNode.physicsBody?.applyImpulse(jumpImpuls)
     }
     
@@ -134,16 +140,14 @@ private extension GameScene {
         addChild(playerNode)
     }
     
-    func setupEnemy(x: CGFloat, y: CGFloat) {
-        let enemySize = CGSize(width: 60, height: 60)
-        
+    func setupEnemy(x: CGFloat, y: CGFloat, size: CGSize) {
         let enemyNode = SKSpriteNode()
-        enemyNode.position = CGPoint(x: x, y: y + enemySize.height/2 + playerInitialSize.height - 10)
-        enemyNode.zPosition = 2
-        enemyNode.size = enemySize
+        enemyNode.position = CGPoint(x: x, y: y)
+        enemyNode.zPosition = 3
+        enemyNode.size = size
         enemyNode.color = .black
         enemyNode.name = enemyNodeName
-        enemyNode.physicsBody = SKPhysicsBody(rectangleOf: enemySize)
+        enemyNode.physicsBody = SKPhysicsBody(rectangleOf: size)
         enemyNode.physicsBody?.allowsRotation = false
         enemyNode.physicsBody?.isDynamic = false
         enemyNode.physicsBody?.affectedByGravity = false
@@ -170,17 +174,13 @@ private extension GameScene {
         addChild(backNode)
     }
     
-    func setupMoveAction() {
-        let moveAction = SKAction.moveBy(x: 100, y: 0, duration: 1)
+    func setupPlayerMoveAction() {
+        let moveAction = SKAction.moveBy(x: 300, y: 0, duration: 1)
         moveAction.timingMode = .linear
         
         let repeatForeveAction = SKAction.repeatForever(moveAction)
         
-        Timer.scheduledTimer(withTimeInterval: 1, repeats: false) { [weak self] _ in
-            guard let self else { return }
-            self.playerNode.run(repeatForeveAction, withKey: playerActionKey)
-        }
-        
+        playerNode.run(repeatForeveAction, withKey: playerActionKey)
     }
     
     func setupScene() {
@@ -190,7 +190,8 @@ private extension GameScene {
     }
     
     func setupFloor(_ x: CGFloat) {
-        let floorSize = CGSize(width: screenSize.width*2, height: 60)
+        let width = Bool.random() ? screenSize.width : screenSize.width
+        let floorSize = CGSize(width: width, height: 60)
         
         let floorNode = SKSpriteNode()
         floorNode.position = CGPoint(x: x, y: -screenSize.height/2 + floorSize.height + 120)
@@ -205,6 +206,8 @@ private extension GameScene {
         addChild(floorNode)
         
         floorsList.append(floorNode)
+        
+        setupEnemy(x: floorNode.frame.maxX + trapSize.width/2 + 10, y: floorNode.frame.midY+20, size: trapSize)
     }
     
     func moveCamera() {
