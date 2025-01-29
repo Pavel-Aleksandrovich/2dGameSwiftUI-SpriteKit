@@ -1,16 +1,25 @@
 import SpriteKit
 
-let screenSize = UIScreen.main.bounds.size
-
 private let playerActionKey = "playerActionKey"
 
-private let playerSize = CGSize(width: 60, height: 60)
+private let enemyNodeName = "enemy"
+
+private let playerNodeName = "player"
+
+private let playerInitialSize = CGSize(width: 80, height: 80)
+private let playerDownSize = CGSize(width: 50, height: 50)
+
+struct BitMask {
+    static let player: UInt32 = 0x1 << 0
+    static let enemy: UInt32 = 0x1 << 1
+}
 
 final class GameScene: SKScene {
     
     private let playerNode = SKSpriteNode()
     private let skCamera = SKCameraNode()
     private var floorsList: [SKSpriteNode] = []
+    private var enemyesList: [SKSpriteNode] = []
     
     override init(size: CGSize) {
         super.init(size: size)
@@ -34,22 +43,77 @@ final class GameScene: SKScene {
     }
     
     override func didSimulatePhysics() {
-        if playerNode.position.x > -100 {
-            camera?.position.x = playerNode.position.x+100
-        }
+        moveCamera()
+
         
         if let last = floorsList.last {
             if playerNode.position.x+100 > last.frame.maxX {
-                setupFloor(last.frame.maxX+last.frame.width/2 + 50)
+                setupFloor(last.frame.maxX+last.frame.width/2 + 100)
                 
-                setupJump()
                 
-                if floorsList.count > 1 {
+                let last = floorsList.last!
+                setupEnemy(x: last.frame.midX, y: last.frame.maxY)
+                
+                if floorsList.count > 2 {
                     let floor = floorsList.removeFirst()
                     floor.removeFromParent()
                 }
+                
+                if enemyesList.count > 5 {
+                    let enemyNode = enemyesList.removeFirst()
+                    enemyNode.removeFromParent()
+                }
+                
             }
 
+        }
+    }
+    
+}
+
+extension GameScene: SKPhysicsContactDelegate {
+    
+    func didBegin(_ contact: SKPhysicsContact) {
+
+       if let _ = contact.bodyA.node?.name,
+          let nameB = contact.bodyB.node?.name {
+           
+           if nameB == enemyNodeName {
+               removeFromParent(contact.bodyB.node)
+           } else {
+               removeFromParent(contact.bodyA.node)
+           }
+
+           func removeFromParent(_ node: SKNode?) {
+               if let node = node {
+                   node.removeFromParent()
+               }
+               
+               // TO DO: descrease life while contact with enemy
+               print("-1 life")
+           }
+       }
+        
+
+    }
+    
+}
+
+extension GameScene {
+    
+    func jumpDidTap() {
+        let jumpImpuls = CGVector(dx: 20, dy: 300)
+        playerNode.physicsBody?.applyImpulse(jumpImpuls)
+    }
+    
+    func downDidTap() {
+        playerNode.physicsBody = SKPhysicsBody(rectangleOf: playerDownSize)
+        
+        Timer.scheduledTimer(withTimeInterval: 2.5, repeats: false) { [weak self] _ in
+            guard let self else {return}
+            self.playerNode.physicsBody = SKPhysicsBody(rectangleOf: playerInitialSize)
+            self.playerNode.physicsBody?.categoryBitMask = BitMask.player
+            self.playerNode.physicsBody?.contactTestBitMask = BitMask.enemy
         }
     }
     
@@ -58,17 +122,37 @@ final class GameScene: SKScene {
 private extension GameScene {
     
     func setupPlayer() {
-        playerNode.position = CGPoint(x: -screenSize.width/2 + playerSize.width, y: 0)
+        playerNode.position = CGPoint(x: -screenSize.width/2 + playerInitialSize.width, y: 0)
         playerNode.zPosition = 1
-        playerNode.size = playerSize
+        playerNode.size = playerInitialSize
         playerNode.color = .red
-        playerNode.physicsBody = SKPhysicsBody(rectangleOf: playerSize)
-        playerNode.physicsBody?.mass = 1
-        playerNode.physicsBody?.allowsRotation = false
-        playerNode.physicsBody?.isDynamic = true
-        playerNode.physicsBody?.affectedByGravity = true
+        playerNode.name = playerNodeName
+        playerNode.physicsBody = SKPhysicsBody(rectangleOf: playerInitialSize)
+        playerNode.physicsBody?.categoryBitMask = BitMask.player
+        playerNode.physicsBody?.contactTestBitMask = BitMask.enemy
         
         addChild(playerNode)
+    }
+    
+    func setupEnemy(x: CGFloat, y: CGFloat) {
+        let enemySize = CGSize(width: 60, height: 60)
+        
+        let enemyNode = SKSpriteNode()
+        enemyNode.position = CGPoint(x: x, y: y + enemySize.height/2 + playerInitialSize.height - 10)
+        enemyNode.zPosition = 2
+        enemyNode.size = enemySize
+        enemyNode.color = .black
+        enemyNode.name = enemyNodeName
+        enemyNode.physicsBody = SKPhysicsBody(rectangleOf: enemySize)
+        enemyNode.physicsBody?.allowsRotation = false
+        enemyNode.physicsBody?.isDynamic = false
+        enemyNode.physicsBody?.affectedByGravity = false
+        enemyNode.physicsBody?.categoryBitMask = BitMask.enemy
+        enemyNode.physicsBody?.contactTestBitMask = BitMask.player
+        
+        addChild(enemyNode)
+        
+        enemyesList.append(enemyNode)
     }
     
     func setupCamera() {
@@ -102,21 +186,14 @@ private extension GameScene {
     func setupScene() {
         anchorPoint = CGPoint(x: 0.5, y: 0.5)
         scaleMode = .aspectFill
-    }
-    
-    func setupJump() {
-        Timer.scheduledTimer(withTimeInterval: 0, repeats: false) { [weak self] _ in
-            guard let self else { return }
-            let jumpImpuls = CGVector(dx: 100, dy: 900)
-            self.playerNode.physicsBody?.applyImpulse(jumpImpuls)
-        }
+        physicsWorld.contactDelegate = self
     }
     
     func setupFloor(_ x: CGFloat) {
         let floorSize = CGSize(width: screenSize.width*2, height: 60)
         
         let floorNode = SKSpriteNode()
-        floorNode.position = CGPoint(x: x, y: -screenSize.height/2 + floorSize.height)
+        floorNode.position = CGPoint(x: x, y: -screenSize.height/2 + floorSize.height + 120)
         floorNode.zPosition = 2
         floorNode.size = floorSize
         floorNode.color = .brown
@@ -128,6 +205,12 @@ private extension GameScene {
         addChild(floorNode)
         
         floorsList.append(floorNode)
+    }
+    
+    func moveCamera() {
+        if playerNode.position.x > -100 {
+            camera?.position.x = playerNode.position.x+100
+        }
     }
     
 }
