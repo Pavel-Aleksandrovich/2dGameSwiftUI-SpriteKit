@@ -6,24 +6,21 @@ private let enemyNodeName = "enemy"
 
 private let playerNodeName = "player"
 
-private let playerInitialSize = CGSize(width: 80, height: 80)
+private let playerInitialSize = CGSize(width: 60, height: 60)
 private let playerDownSize = CGSize(width: 50, height: 50)
 private let trapSize = CGSize(width: 100, height: 60)
 private let enemySize = CGSize(width: 60, height: 60)
 
-struct BitMask {
-    static let player: UInt32 = 0x1 << 0
-    static let enemy: UInt32 = 0x1 << 1
-}
-
 final class GameScene: SKScene {
+    
+    var loseHandler: ()->() = {}
     
     private let playerNode = SKSpriteNode()
     private let skCamera = SKCameraNode()
     private var floorsList: [SKSpriteNode] = []
     private var enemyesList: [SKSpriteNode] = []
     
-    var loseHandler: ()->() = {}
+    private var isCanJump = true
     
     override init(size: CGSize) {
         super.init(size: size)
@@ -40,7 +37,7 @@ final class GameScene: SKScene {
         
         setupBack()
         setupPlayer()
-        setupFloor(0)
+        setupFloor(x: 0, width: FloorType.large.width, y: 0)
         setupCamera()
     }
     
@@ -52,12 +49,14 @@ final class GameScene: SKScene {
         else { return }
         
         let last = floorsList.last!
-        setupFloor(last.frame.maxX+last.frame.width/2 + trapSize.width + 20)
+        let randomFloorType = FloorType.allCases.randomElement() ?? .small
+        let floorY: CGFloat = randomFloorType == .small ? 60 : 0
+        setupFloor(x: last.frame.maxX+randomFloorType.width/2 + trapSize.width + 20, width: randomFloorType.width, y: floorY)
         
-        // TO DO: Floors created incorrect. Space between two floors is different
-        
-        let enemyY = floorsList.last!.frame.maxY + enemySize.height/2 + playerInitialSize.height - 10
-        setupEnemy(x: floorsList.last!.frame.midX, y: enemyY, size: enemySize)
+        if randomFloorType == .large {
+            let enemyY = floorsList.last!.frame.maxY + enemySize.height/2 + playerInitialSize.height - 10
+            setupEnemy(x: floorsList.last!.frame.midX, y: enemyY, size: enemySize)
+        }
         
         if floorsList.count > 2 {
             let floor = floorsList.removeFirst()
@@ -91,7 +90,7 @@ extension GameScene: SKPhysicsContactDelegate {
                    node.removeFromParent()
                }
          
-               loseHandler()
+//               loseHandler()
                
            }
        }
@@ -108,8 +107,26 @@ extension GameScene {
     }
     
     func jumpDidTap() {
-        let jumpImpuls = CGVector(dx: 0, dy: 250)
-        playerNode.physicsBody?.applyImpulse(jumpImpuls)
+//        let jumpImpuls = CGVector(dx: 0, dy: 250)
+//        playerNode.physicsBody?.applyImpulse(jumpImpuls)
+        
+        guard isCanJump else { return }
+        
+        isCanJump = false
+        
+        let jumpAction = SKAction.moveBy(x: 15, y: playerNode.position.y + 350, duration: 0.2)
+        jumpAction.timingMode = .easeOut
+        
+        let moveAction = SKAction.moveBy(x: 35, y: 0, duration: 0.1)
+
+        
+        let jumpEndHandler = SKAction.run { [weak self] in
+            guard let self else { return }
+            self.isCanJump = true
+        }
+        
+        let jumpSequence = SKAction.sequence([jumpAction,moveAction, jumpEndHandler])
+        playerNode.run(jumpSequence)
     }
     
     func downDidTap() {
@@ -118,8 +135,9 @@ extension GameScene {
         Timer.scheduledTimer(withTimeInterval: 2.5, repeats: false) { [weak self] _ in
             guard let self else {return}
             self.playerNode.physicsBody = SKPhysicsBody(rectangleOf: playerInitialSize)
-            self.playerNode.physicsBody?.categoryBitMask = BitMask.player
-            self.playerNode.physicsBody?.contactTestBitMask = BitMask.enemy
+            self.playerNode.physicsBody?.categoryBitMask = BitMaskGame.player
+            self.playerNode.physicsBody?.contactTestBitMask = BitMaskGame.enemy
+            self.playerNode.physicsBody?.allowsRotation = false
         }
     }
     
@@ -134,8 +152,9 @@ private extension GameScene {
         playerNode.color = .red
         playerNode.name = playerNodeName
         playerNode.physicsBody = SKPhysicsBody(rectangleOf: playerInitialSize)
-        playerNode.physicsBody?.categoryBitMask = BitMask.player
-        playerNode.physicsBody?.contactTestBitMask = BitMask.enemy
+        playerNode.physicsBody?.categoryBitMask = BitMaskGame.player
+        playerNode.physicsBody?.contactTestBitMask = BitMaskGame.enemy
+        playerNode.physicsBody?.allowsRotation = false
         
         addChild(playerNode)
     }
@@ -151,8 +170,8 @@ private extension GameScene {
         enemyNode.physicsBody?.allowsRotation = false
         enemyNode.physicsBody?.isDynamic = false
         enemyNode.physicsBody?.affectedByGravity = false
-        enemyNode.physicsBody?.categoryBitMask = BitMask.enemy
-        enemyNode.physicsBody?.contactTestBitMask = BitMask.player
+        enemyNode.physicsBody?.categoryBitMask = BitMaskGame.enemy
+        enemyNode.physicsBody?.contactTestBitMask = BitMaskGame.player
         
         addChild(enemyNode)
         
@@ -175,7 +194,7 @@ private extension GameScene {
     }
     
     func setupPlayerMoveAction() {
-        let moveAction = SKAction.moveBy(x: 300, y: 0, duration: 1)
+        let moveAction = SKAction.moveBy(x: 400, y: 0, duration: 1)
         moveAction.timingMode = .linear
         
         let repeatForeveAction = SKAction.repeatForever(moveAction)
@@ -189,12 +208,11 @@ private extension GameScene {
         physicsWorld.contactDelegate = self
     }
     
-    func setupFloor(_ x: CGFloat) {
-        let width = Bool.random() ? screenSize.width : screenSize.width
+    func setupFloor(x: CGFloat, width: CGFloat, y: CGFloat) {
         let floorSize = CGSize(width: width, height: 60)
         
         let floorNode = SKSpriteNode()
-        floorNode.position = CGPoint(x: x, y: -screenSize.height/2 + floorSize.height + 120)
+        floorNode.position = CGPoint(x: x, y: -screenSize.height/2 + floorSize.height + 120 + y)
         floorNode.zPosition = 2
         floorNode.size = floorSize
         floorNode.color = .brown
